@@ -1,0 +1,61 @@
+import crack.net Socket, SOCK_STREAM, AF_INET, resolve, InetAddress;
+import crack.io cout, cerr, FStr;
+import crack.io.readers LineReader;
+
+class Irc {
+
+    String _server;
+    bool _connected;
+    uint _port;
+    InetAddress _addr;
+    Socket _sock;
+
+    oper init(String s, uint p): _server = s, _port = p,
+                         _connected = false {  }
+
+    void log(String msg) {
+        cerr `$msg\n`;
+    }
+
+    bool connect() {
+        log("connecting to "+_server);
+
+        alist := resolve(_server);
+        if (alist.count() == 0) {
+            log("unable to resolve");
+            return false;
+        }
+
+        for (adr :in alist) {
+            _addr := InetAddress(InetAddress.cast(adr), _port);
+            log(FStr() `trying $_addr`);
+            _sock = Socket(AF_INET, SOCK_STREAM, 0);
+            if (_sock.connect(_addr)) {
+                _sock.write("NICK crackbot\n");
+                _sock.write("USER crackbot crackbot2 crackbot3 crackbot4\n");
+                return true;
+            }
+        }
+
+        log("unable to connect");
+        return false;
+    }
+
+    void readDump() {
+        lr := LineReader(_sock);
+        String s;
+        while (s = lr.readLine()) {
+            cout `[READ]: $s\n`;
+        }
+    }
+
+    bool join(String channel) {
+        return true;
+    }
+
+    bool say(String msg) {
+        return true;
+    }
+
+}
+

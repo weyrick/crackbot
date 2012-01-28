@@ -1,0 +1,13 @@
+import lib.irc Irc;
+import crack.io cout;
+import crack.lang die;
+
+i := Irc("hospoda.mozek.us", 16667);
+if (i.connect()) {
+    cout `connected!\n`;
+    i.readDump();
+}
+else
+    die("unable to connect");
+i.join("#crack-lang");
+i.say("kachow");
