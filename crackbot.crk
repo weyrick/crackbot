@@ -4,8 +4,8 @@
 import crack.time TimeDelta;
 import lib.irc Client, User, Channel;
 import crack.net.httpsrv HTTPServer, HTTPRequest;
-import crack.io cout, StringFormatter, FStr;
-import crack.lang die;
+import crack.io cout, cin, StringFormatter, FStr, FDReader;
+import crack.lang die, ManagedBuffer;
 import crack.functor Function1;
 
 class CrackBot: Client {
@@ -34,21 +34,30 @@ bot := CrackBot("irc.roadsend.com", 6667, 'crack|','crackbot','http://crack-lang
 if (!bot.connect())
     die("unable to connect");
 
-s := HTTPServer(8080);
+HTTPServer s;
+
+//s := HTTPServer(8080);
 
 String botStatusPage() {
     result := StringFormatter();
-    result `Connected to: $(bot.getServerName())`;
+    result `<html>\n`;
+    result `Connected to: $(bot.getServerName())<br>\n`;
+    cList := bot.getChannelList();
+    result `clist: $cList<br>`;
+    for (c :in cList) {
+        result `$(c.key)<br>`;
+    }
+    result `</html>\n`;
     return result.makeString();
 }
 
 bool handler(HTTPRequest req) {
     if (req.path == '/') {
         if (bot.isConnected()) {
-            req.sendReply(200, 'text/plain', botStatusPage());
+            req.sendReply(200, 'text/html', botStatusPage());
         }
         else
-            req.sendReply(200, 'text/plain', 'IRC not connected');
+            req.sendReply(200, 'text/html', 'IRC not connected');
         return true;
     } else {
         return false;
@@ -60,13 +69,27 @@ bool notFound(HTTPRequest req) {
   return true;
 }
 
-s.addHandler(Function1[bool, HTTPRequest](handler));
-s.addHandler(Function1[bool, HTTPRequest](notFound));
+if (!(s is null)) {
+    s.addHandler(Function1[bool, HTTPRequest](handler));
+    s.addHandler(Function1[bool, HTTPRequest](notFound));
+}
+
+// don't block on reads from stdin
+cin.setNonBlocking(true);
+cbuf := ManagedBuffer(16);
+int cresult = 0;
 
 while (true) {
     // process irc
-    bot.processOnce(TimeDelta(1,0));
+    bot.processOnce(TimeDelta(0,0));
     // process http
-    s.processOnce(TimeDelta(1,0));
+    if (!(s is null))
+        s.processOnce(TimeDelta(0,0));
+    // process console input
+    cresult = cin.read(cbuf);
+    if (cresult > 0) {
+        input := String(cbuf, cresult, false);
+        if (input.rtrim() == "q")
+            break;
+    }
 }
-

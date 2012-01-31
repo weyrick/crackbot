@@ -107,6 +107,7 @@ class Client {
         else {
             channel = Channel(channelName);
         }
+        log(FStr() `joined $(channel.name)`);
         channel.addUser(user);
         if (user.nick != _me.nick)
             _onJoin(user, channel);
@@ -122,6 +123,7 @@ class Client {
         if (!_channelList.contains(channelName))
             return;
         channel = _channelList[channelName];
+        log(FStr() `parted $(channel.name)`);
         channel.removeUser(user);
         _onPart(user, channel);
     }
@@ -187,7 +189,7 @@ class Client {
             log(FStr() `trying $_addr`);
             _sock = Socket(AF_INET, SOCK_STREAM, 0);
             if (_sock.connect(_addr)) {
-                _sock.setNonBlock(true);
+                _sock.setNonBlocking(true);
                 _send(FStr() `NICK $(_me.nick)`);
                 _send(FStr() `USER $(_me.userName) host server $(_me.realName)`);
                 _poller = Poller();
@@ -197,7 +199,7 @@ class Client {
                 // are sent
                 // XXX need some sort of timeout here
                 while (!_connected)
-                    processOnce(TimeDelta(1,0));
+                    processOnce(TimeDelta(0,0));
                 return true;
             }
         }
@@ -217,6 +219,8 @@ class Client {
     bool isConnected() { return _connected; }
 
     String getServerName() { return _serverName; }
+
+    HashMap[String, Channel] getChannelList() { return _channelList; }
 
 }
 
