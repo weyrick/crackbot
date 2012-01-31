@@ -1,9 +1,14 @@
+## IRC library
+## Copyright 2012 Shannon Weyrick <weyrick@mozek.us>
+
 import crack.net Socket, SOCK_STREAM, AF_INET, resolve, InetAddress, Poller,
                  POLLIN, PollEvent, SOCK_NONBLOCK;
 import crack.time TimeDelta;
 import crack.io cout, cerr, FStr, StringWriter, StringReader;
 import crack.io.readers LineReader;
 import crack.regex Regex;
+import crack.strutil split, StringArray;
+import crack.cont.list List;
 
 class User {
 
@@ -11,9 +16,11 @@ class User {
 
 }
 
-class Server {
+class Channel {
 
-    User user;
+}
+
+class Client {
 
     String _hostName;
     uint _port;
@@ -21,24 +28,32 @@ class Server {
     Socket _sock;
     Poller _poller;
 
-    bool _connected;
+    bool _connected; // true if we receive RPL_WELCOME
+    bool _debug; // dump raw output
+
     Regex _rx_parse;
 
+    User _user;
+    List[Channel] _channelList;
+
     oper init(String s, uint p, String n, String un, String rn):
-                         user(),
+                         _user(),
+                         _channelList(),
+                         _debug = false,
                          _hostName = s,
                          _port = p,
                          _connected = false {
-        user.nick = n;
-        user.userName = un;
-        user.realName = rn;
+        _user.nick = n;
+        _user.userName = un;
+        _user.realName = rn;
         // regex courtesy of:
         // http://calebdelnay.com/blog/2010/11/parsing-the-irc-message-format-as-a-client
         _rx_parse = Regex("^(:(?<prefix>\\S+) )?(?<command>\\S+)( (?!:)(?<params>.+?))?( :(?<trail>.+))?$");
     }
 
     void log(String msg) {
-        cout `$msg\n`;
+        if (_debug)
+            cout `$msg\n`;
     }
 
     void _send(String data) {
@@ -47,36 +62,56 @@ class Server {
         _sock.write("\n");
     }
 
-    void _dispatch(String prefix, String command, String params, String trail) {
-        log(FStr() `_dispatch: [$prefix] [$command] [$params] [$trail]`);
-        if (command == "PING") {
+    void _onJoin(String channel) { }
+
+    void __doJoin(String channel) {
+        _onJoin(channel);
+    }
+
+    void _onPrivMsg(String source, String target, String msg) { }
+
+    void _onConnect() { }
+
+    void _dispatch(String prefix, String command, StringArray params, String trail) {
+        log(FStr() `[READ ]: [$prefix] [$command] $params [$trail]`);
+        if (command == "001") {
+            // RPL_WELCOME: we are now connected
+            _connected = true;
+            _onConnect();
+        }
+        else if (command == "PING") {
             _send(FStr() `PONG :$trail`);
         }
-    }
-
-    void _parse(String line) {
-        m := _rx_parse.search(line.rtrim());
-        if (m) {
-            _dispatch(m.group("prefix"), m.group("command"), m.group("params"), m.group("trail"));
+        else if (command == "JOIN") {
+            __doJoin(trail);
         }
-        else {
-            log(FStr() `_process FAIL: [$line]`);
+        else if (command == "PRIVMSG") {
+            if (params.count() > 0)
+                _onPrivMsg(prefix, params[0], trail);
         }
     }
 
-    void process() {
-        _poller.wait(TimeDelta(1,0));
+    // poll socket and process any incoming messages
+    // will not block
+    void processOnce(TimeDelta timeout) {
+        _poller.wait(timeout);
         e := _poller.nx();
         if (!(e is null) && e.revents & POLLIN) {
             lr := LineReader(_sock);
             String s;
             while (s = lr.readLine()) {
-                _parse(s);
+                m := _rx_parse.search(s.rtrim());
+                if (m)
+                    _dispatch(m.group("prefix"), m.group("command"),
+                              split(m.group("params")), m.group("trail"));
+                else
+                    log(FStr() `_process FAIL: [$s]`);
             }
         }
     }
 
     bool connect() {
+
         log("connecting to "+_hostName);
 
         alist := resolve(_hostName);
@@ -91,13 +126,16 @@ class Server {
             _sock = Socket(AF_INET, SOCK_STREAM, 0);
             if (_sock.connect(_addr)) {
                 _sock.setNonBlock(true);
-                _send(FStr() `NICK $(user.nick)`);
-                _send(FStr() `USER $(user.userName) host server $(user.realName)`);
+                _send(FStr() `NICK $(_user.nick)`);
+                _send(FStr() `USER $(_user.userName) host server $(_user.realName)`);
                 _poller = Poller();
                 _poller.add(_sock, POLLIN);
-                // process until we do our first PONG
+                // process until we get RPL_WELCOME
+                // this forces a connection before any other commands
+                // are sent
+                // XXX need some sort of timeout here
                 while (!_connected)
-                    process();
+                    processOnce(TimeDelta(1,0));
                 return true;
             }
         }
@@ -107,12 +145,16 @@ class Server {
     }
 
     void join(String channel) {
-        _send(FStr() `JOIN $channel\n`);
+        _send(FStr() `JOIN $channel`);
     }
 
-    bool say(String msg) {
-        return true;
+    void say(String channel, String msg) {
+        _send(FStr() `PRIVMSG $channel $msg`);
     }
+
+    bool isConnected() { return _connected; }
+
+    String getServerName() { return _hostName; }
 
 }
 

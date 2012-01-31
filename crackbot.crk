@@ -1,18 +1,68 @@
-import lib.irc Server;
-import crack.io cout;
+## crack irc bot
+## Copyright 2012 Shannon Weyrick <weyrick@mozek.us>
+
+import crack.time TimeDelta;
+import lib.irc Client;
+import crack.net.httpsrv HTTPServer, HTTPRequest;
+import crack.io cout, StringFormatter;
 import crack.lang die;
+import crack.functor Function1;
 
-i := Server("irc.roadsend.com", 6667, 'crack|','crackbot','http://crack-lang.org');
-//i := Server("irc.freenode.net", 6667, 'crack|','crackbot','http://crack-lang.org');
-if (i.connect()) {
-    cout `connected!\n`;
+class CrackBot: Client {
+
+    oper init(String s, uint p, String n, String un, String rn):
+      Client(s,p,n,un,rn) {
+
+        _debug = true;
+
+    }
+
+    void _onConnect() {
+        join("#crack-lang");
+        say("#crack-lang", "yo, whatchu need?");
+    }
+
 }
-else
+
+bot := CrackBot("irc.roadsend.com", 6667, 'crack|','crackbot','http://crack-lang.org');
+//bot := CrackBot("irc.freenode.net", 6667, 'crack|','crackbot','http://crack-lang.org');
+
+if (!bot.connect())
     die("unable to connect");
-i.join("#crack-lang");
 
-while (1) {
-    i.process();
+s := HTTPServer(8080);
+
+String botStatusPage() {
+    result := StringFormatter();
+    result `Connected to: $(bot.getServerName())`;
+    return result.makeString();
 }
 
-//i.say("kachow");
+bool handler(HTTPRequest req) {
+    if (req.path == '/') {
+        if (bot.isConnected()) {
+            req.sendReply(200, 'text/plain', botStatusPage());
+        }
+        else
+            req.sendReply(200, 'text/plain', 'IRC not connected');
+        return true;
+    } else {
+        return false;
+    }
+}
+
+bool notFound(HTTPRequest req) {
+  req.sendReply(404, 'text/plain', 'Not found.  Bite me.');
+  return true;
+}
+
+s.addHandler(Function1[bool, HTTPRequest](handler));
+s.addHandler(Function1[bool, HTTPRequest](notFound));
+
+while (true) {
+    // process irc
+    bot.processOnce(TimeDelta(1,0));
+    // process http
+    s.processOnce(TimeDelta(1,0));
+}
+
