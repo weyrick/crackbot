@@ -8,21 +8,52 @@ import crack.io cout, cerr, FStr, StringWriter, StringReader;
 import crack.io.readers LineReader;
 import crack.regex Regex;
 import crack.strutil split, StringArray;
-import crack.cont.list List;
+import crack.cont.hashmap HashMap;
 
 class User {
 
     String nick, userName, realName;
 
+    oper init(String n, String un, String rn):
+        nick = n,
+        userName = un,
+        realName = rn
+    {
+    }
+
+    // from raw string like: GRiD!GRiD@hospoda.mozek.us
+    @static User createFromRaw(String raw) {
+        parts1 := split(raw, "@");
+        if (!parts1.count())
+            return null;
+        parts2 := split(parts1[0], "!");
+        if (!parts2.count())
+            return null;
+        return User(parts2[0], parts2[1], "");
+    }
+
 }
 
 class Channel {
+
+    String name;
+    HashMap[String, User] userList;
+
+    oper init(String n): name = n, userList() { }
+
+    void addUser(User u) {
+        userList[u.nick] = u;
+    }
+
+    void removeUser(User u) {
+        userList.delete(u.nick);
+    }
 
 }
 
 class Client {
 
-    String _hostName;
+    String _serverName;
     uint _port;
     InetAddress _addr;
     Socket _sock;
@@ -33,19 +64,16 @@ class Client {
 
     Regex _rx_parse;
 
-    User _user;
-    List[Channel] _channelList;
+    User _me;
+    HashMap[String, Channel] _channelList;
 
     oper init(String s, uint p, String n, String un, String rn):
-                         _user(),
+                         _me(n,un,rn),
                          _channelList(),
                          _debug = false,
-                         _hostName = s,
+                         _serverName = s,
                          _port = p,
                          _connected = false {
-        _user.nick = n;
-        _user.userName = un;
-        _user.realName = rn;
         // regex courtesy of:
         // http://calebdelnay.com/blog/2010/11/parsing-the-irc-message-format-as-a-client
         _rx_parse = Regex("^(:(?<prefix>\\S+) )?(?<command>\\S+)( (?!:)(?<params>.+?))?( :(?<trail>.+))?$");
@@ -62,10 +90,40 @@ class Client {
         _sock.write("\n");
     }
 
-    void _onJoin(String channel) { }
+    void _onJoin(User user, Channel channel) { }
 
-    void __doJoin(String channel) {
-        _onJoin(channel);
+    void _onPart(User user, Channel channel) { }
+
+    void __doJoin(String source, String channelName) {
+        user := User.createFromRaw(source);
+        if (user is null) {
+            log(FStr() `unable to parse raw source: $source`);
+            return;
+        }
+        Channel channel;
+        if (_channelList.contains(channelName)) {
+            channel = _channelList[channelName];
+        }
+        else {
+            channel = Channel(channelName);
+        }
+        channel.addUser(user);
+        if (user.nick != _me.nick)
+            _onJoin(user, channel);
+    }
+
+    void __doPart(String source, String channelName) {
+        user := User.createFromRaw(source);
+        if (user is null) {
+            log(FStr() `unable to parse raw source: $source`);
+            return;
+        }
+        Channel channel;
+        if (!_channelList.contains(channelName))
+            return;
+        channel = _channelList[channelName];
+        channel.removeUser(user);
+        _onPart(user, channel);
     }
 
     void _onPrivMsg(String source, String target, String msg) { }
@@ -83,7 +141,11 @@ class Client {
             _send(FStr() `PONG :$trail`);
         }
         else if (command == "JOIN") {
-            __doJoin(trail);
+            __doJoin(prefix, trail);
+        }
+        else if (command == "PART") {
+            if (params.count() > 0)
+                __doPart(prefix, params[0]);
         }
         else if (command == "PRIVMSG") {
             if (params.count() > 0)
@@ -112,9 +174,9 @@ class Client {
 
     bool connect() {
 
-        log("connecting to "+_hostName);
+        log("connecting to "+_serverName);
 
-        alist := resolve(_hostName);
+        alist := resolve(_serverName);
         if (alist.count() == 0) {
             log("unable to resolve");
             return false;
@@ -126,8 +188,8 @@ class Client {
             _sock = Socket(AF_INET, SOCK_STREAM, 0);
             if (_sock.connect(_addr)) {
                 _sock.setNonBlock(true);
-                _send(FStr() `NICK $(_user.nick)`);
-                _send(FStr() `USER $(_user.userName) host server $(_user.realName)`);
+                _send(FStr() `NICK $(_me.nick)`);
+                _send(FStr() `USER $(_me.userName) host server $(_me.realName)`);
                 _poller = Poller();
                 _poller.add(_sock, POLLIN);
                 // process until we get RPL_WELCOME
@@ -154,7 +216,7 @@ class Client {
 
     bool isConnected() { return _connected; }
 
-    String getServerName() { return _hostName; }
+    String getServerName() { return _serverName; }
 
 }
 

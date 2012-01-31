@@ -2,9 +2,9 @@
 ## Copyright 2012 Shannon Weyrick <weyrick@mozek.us>
 
 import crack.time TimeDelta;
-import lib.irc Client;
+import lib.irc Client, User, Channel;
 import crack.net.httpsrv HTTPServer, HTTPRequest;
-import crack.io cout, StringFormatter;
+import crack.io cout, StringFormatter, FStr;
 import crack.lang die;
 import crack.functor Function1;
 
@@ -19,7 +19,11 @@ class CrackBot: Client {
 
     void _onConnect() {
         join("#crack-lang");
-        say("#crack-lang", "yo, whatchu need?");
+        //join("#crack-lang-test");
+    }
+
+    void _onJoin(User user, Channel channel) {
+        say(channel.name, FStr() `yo $(user.nick), whatchu need?`);
     }
 
 }
@@ -52,7 +56,7 @@ bool handler(HTTPRequest req) {
 }
 
 bool notFound(HTTPRequest req) {
-  req.sendReply(404, 'text/plain', 'Not found.  Bite me.');
+  req.sendReply(404, 'text/plain', 'Not found.');
   return true;
 }
 
