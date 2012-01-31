@@ -1,26 +1,85 @@
-import crack.net Socket, SOCK_STREAM, AF_INET, resolve, InetAddress;
-import crack.io cout, cerr, FStr;
+import crack.net Socket, SOCK_STREAM, AF_INET, resolve, InetAddress, Poller,
+                 POLLIN, PollEvent, SOCK_NONBLOCK;
+import crack.time TimeDelta;
+import crack.io cout, cerr, FStr, StringWriter, StringReader;
 import crack.io.readers LineReader;
+import crack.regex Regex;
 
-class Irc {
+class User {
 
-    String _server;
-    bool _connected;
+    String nick, userName, realName;
+
+}
+
+class Server {
+
+    User user;
+
+    String _hostName;
     uint _port;
     InetAddress _addr;
     Socket _sock;
+    Poller _poller;
 
-    oper init(String s, uint p): _server = s, _port = p,
-                         _connected = false {  }
+    bool _connected;
+    Regex _rx_parse;
+
+    oper init(String s, uint p, String n, String un, String rn):
+                         user(),
+                         _hostName = s,
+                         _port = p,
+                         _connected = false {
+        user.nick = n;
+        user.userName = un;
+        user.realName = rn;
+        // regex courtesy of:
+        // http://calebdelnay.com/blog/2010/11/parsing-the-irc-message-format-as-a-client
+        _rx_parse = Regex("^(:(?<prefix>\\S+) )?(?<command>\\S+)( (?!:)(?<params>.+?))?( :(?<trail>.+))?$");
+    }
 
     void log(String msg) {
-        cerr `$msg\n`;
+        cout `$msg\n`;
+    }
+
+    void _send(String data) {
+        log(FStr() `[WRITE]: $data`);
+        _sock.write(data);
+        _sock.write("\n");
+    }
+
+    void _dispatch(String prefix, String command, String params, String trail) {
+        log(FStr() `_dispatch: [$prefix] [$command] [$params] [$trail]`);
+        if (command == "PING") {
+            _send(FStr() `PONG :$trail`);
+        }
+    }
+
+    void _parse(String line) {
+        m := _rx_parse.search(line.rtrim());
+        if (m) {
+            _dispatch(m.group("prefix"), m.group("command"), m.group("params"), m.group("trail"));
+        }
+        else {
+            log(FStr() `_process FAIL: [$line]`);
+        }
+    }
+
+    void process() {
+        _poller.wait(TimeDelta(1,0));
+        e := _poller.nx();
+        if (!(e is null) && e.revents & POLLIN) {
+            lr := LineReader(_sock);
+            String s;
+            while (s = lr.readLine()) {
+                _parse(s);
+            }
+        }
     }
 
     bool connect() {
-        log("connecting to "+_server);
+        log("connecting to "+_hostName);
 
-        alist := resolve(_server);
+        alist := resolve(_hostName);
         if (alist.count() == 0) {
             log("unable to resolve");
             return false;
@@ -31,8 +90,14 @@ class Irc {
             log(FStr() `trying $_addr`);
             _sock = Socket(AF_INET, SOCK_STREAM, 0);
             if (_sock.connect(_addr)) {
-                _sock.write("NICK crackbot\n");
-                _sock.write("USER crackbot crackbot2 crackbot3 crackbot4\n");
+                _sock.setNonBlock(true);
+                _send(FStr() `NICK $(user.nick)`);
+                _send(FStr() `USER $(user.userName) host server $(user.realName)`);
+                _poller = Poller();
+                _poller.add(_sock, POLLIN);
+                // process until we do our first PONG
+                while (!_connected)
+                    process();
                 return true;
             }
         }
@@ -41,16 +106,8 @@ class Irc {
         return false;
     }
 
-    void readDump() {
-        lr := LineReader(_sock);
-        String s;
-        while (s = lr.readLine()) {
-            cout `[READ]: $s\n`;
-        }
-    }
-
-    bool join(String channel) {
-        return true;
+    void join(String channel) {
+        _send(FStr() `JOIN $channel\n`);
     }
 
     bool say(String msg) {

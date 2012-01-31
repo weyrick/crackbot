@@ -1,13 +1,18 @@
-import lib.irc Irc;
+import lib.irc Server;
 import crack.io cout;
 import crack.lang die;
 
-i := Irc("hospoda.mozek.us", 16667);
+i := Server("irc.roadsend.com", 6667, 'crack|','crackbot','http://crack-lang.org');
+//i := Server("irc.freenode.net", 6667, 'crack|','crackbot','http://crack-lang.org');
 if (i.connect()) {
     cout `connected!\n`;
-    i.readDump();
 }
 else
     die("unable to connect");
 i.join("#crack-lang");
-i.say("kachow");
+
+while (1) {
+    i.process();
+}
+
+//i.say("kachow");
