@@ -18,12 +18,21 @@ class CrackBot: Client {
     }
 
     void _onConnect() {
-        join("#crack-lang");
-        //join("#crack-lang-test");
+        //join("#crack-lang");
+        join("#crack-lang-test");
     }
 
     void _onJoin(User user, Channel channel) {
+        cout `$(user.nick) joined $(channel.name)\n`;
         say(channel.name, FStr() `yo $(user.nick), whatchu need?`);
+    }
+
+    void _onPart(User user, Channel channel) {
+        cout `$(user.nick) parted $(channel.name)\n`;
+    }
+
+    void _onPrivMsg(String source, String target, String msg) {
+        cout `$source said [$msg] on $target\n`;
     }
 
 }
@@ -34,9 +43,6 @@ bot := CrackBot("irc.roadsend.com", 6667, 'crack|','crackbot','http://crack-lang
 if (!bot.connect())
     die("unable to connect");
 
-HTTPServer s;
-
-//s := HTTPServer(8080);
 
 String botStatusPage() {
     result := StringFormatter();
@@ -69,6 +75,8 @@ bool notFound(HTTPRequest req) {
   return true;
 }
 
+//HTTPServer s;
+s := HTTPServer(8080);
 if (!(s is null)) {
     s.addHandler(Function1[bool, HTTPRequest](handler));
     s.addHandler(Function1[bool, HTTPRequest](notFound));
@@ -79,17 +87,20 @@ cin.setNonBlocking(true);
 cbuf := ManagedBuffer(16);
 int cresult = 0;
 
+to := TimeDelta(0,200000); // 200 ms
 while (true) {
     // process irc
-    bot.processOnce(TimeDelta(0,0));
+    bot.processOnce(to);
     // process http
     if (!(s is null))
-        s.processOnce(TimeDelta(0,0));
+        s.processOnce(to);
     // process console input
     cresult = cin.read(cbuf);
     if (cresult > 0) {
         input := String(cbuf, cresult, false);
         if (input.rtrim() == "q")
             break;
+        else
+            bot.say("#crack-lang", input.rtrim());
     }
 }

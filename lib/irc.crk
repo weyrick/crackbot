@@ -9,10 +9,17 @@ import crack.io.readers LineReader;
 import crack.regex Regex;
 import crack.strutil split, StringArray;
 import crack.cont.hashmap HashMap;
+import crack.lang Formatter;
 
 class User {
 
     String nick, userName, realName;
+
+    oper init(String n): nick = n, userName(), realName() {
+        // strip leading @
+        if (nick.size && nick[0] == b'@')
+            nick = nick.substr(1);
+    }
 
     oper init(String n, String un, String rn):
         nick = n,
@@ -32,14 +39,21 @@ class User {
         return User(parts2[0], parts2[1], "");
     }
 
+    void formatTo(Formatter fmt) {
+        fmt `User [$nick] [$userName] [$realName]\n`;
+    }
+
 }
 
 class Channel {
 
     String name;
+    String topic;
+    String mode;
+
     HashMap[String, User] userList;
 
-    oper init(String n): name = n, userList() { }
+    oper init(String n): name = n, topic(), mode(), userList() { }
 
     void addUser(User u) {
         userList[u.nick] = u;
@@ -47,6 +61,10 @@ class Channel {
 
     void removeUser(User u) {
         userList.delete(u.nick);
+    }
+
+    void formatTo(Formatter fmt) {
+        fmt `Channel [$name] [$topic]\n$userList\n`;
     }
 
 }
@@ -106,8 +124,8 @@ class Client {
         }
         else {
             channel = Channel(channelName);
+            _channelList[channelName] = channel;
         }
-        log(FStr() `joined $(channel.name)`);
         channel.addUser(user);
         if (user.nick != _me.nick)
             _onJoin(user, channel);
@@ -119,11 +137,11 @@ class Client {
             log(FStr() `unable to parse raw source: $source`);
             return;
         }
-        Channel channel;
-        if (!_channelList.contains(channelName))
+        if (!_channelList.contains(channelName)) {
+            log(FStr() `ASSERT: part from channel we don't have`);
             return;
-        channel = _channelList[channelName];
-        log(FStr() `parted $(channel.name)`);
+        }
+        channel := _channelList[channelName];
         channel.removeUser(user);
         _onPart(user, channel);
     }
@@ -139,11 +157,28 @@ class Client {
             _connected = true;
             _onConnect();
         }
+        else if (command == "353") {
+            // NAMES reply (also happens on join)
+            //:irc.roadsend.com 353 crack| @ #crack-lang :crack| @GRiD
+            if (params.count() == 3 && _channelList.contains(params[2])) {
+                uList := split(trail);
+                for (uString :in uList) {
+                    if (_me.nick != uString)
+                        _channelList[params[2]].addUser(User(uString));
+                }
+                cout `channel now has: $(_channelList[params[2]])\n`;
+            }
+        }
         else if (command == "PING") {
             _send(FStr() `PONG :$trail`);
         }
         else if (command == "JOIN") {
-            __doJoin(prefix, trail);
+            if (params.count() > 0 &&
+                params[0].size > 0 &&
+                params[0][0] == b'#')
+                __doJoin(prefix, params[0]);
+            else
+                __doJoin(prefix, trail);
         }
         else if (command == "PART") {
             if (params.count() > 0)
@@ -164,6 +199,7 @@ class Client {
             lr := LineReader(_sock);
             String s;
             while (s = lr.readLine()) {
+                //log(s);
                 m := _rx_parse.search(s.rtrim());
                 if (m)
                     _dispatch(m.group("prefix"), m.group("command"),
@@ -213,7 +249,7 @@ class Client {
     }
 
     void say(String channel, String msg) {
-        _send(FStr() `PRIVMSG $channel $msg`);
+        _send(FStr() `PRIVMSG $channel :$msg`);
     }
 
     bool isConnected() { return _connected; }
