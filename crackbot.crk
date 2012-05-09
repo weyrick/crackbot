@@ -7,6 +7,9 @@ import crack.net.httpsrv HTTPServer, HTTPRequest;
 import crack.io cout, cin, StringFormatter, FStr, FDReader;
 import crack.lang die, ManagedBuffer;
 import crack.functor Function1;
+import crack.logger setLogLevel, INFO;
+
+setLogLevel(INFO);
 
 class CrackBot: Client {
 
@@ -75,7 +78,6 @@ bool notFound(HTTPRequest req) {
   return true;
 }
 
-//HTTPServer s;
 s := HTTPServer(8080);
 if (!(s is null)) {
     s.addHandler(Function1[bool, HTTPRequest](handler));
